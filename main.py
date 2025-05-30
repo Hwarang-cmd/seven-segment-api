@@ -1,25 +1,28 @@
-# main.py
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 import cv2
 import numpy as np
 import tempfile
-from ssocr import preprocess, find_digits_positions, recognize_digits_line_method, THRESHOLD
+import ssocr
 
 app = FastAPI()
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
+    contents = await file.read()
+
+    # Save to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+
     try:
-        contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+        # เรียกใช้ ssocr
+        blurred, gray_img = ssocr.load_image(tmp_path, show=False)
+        dst = ssocr.preprocess(blurred, ssocr.THRESHOLD, show=False)
+        digits_positions = ssocr.find_digits_positions(dst)
+        digits = ssocr.recognize_digits_line_method(digits_positions, blurred, dst)
 
-        blurred = cv2.GaussianBlur(img, (7, 7), 0)
-        dst = preprocess(blurred, THRESHOLD)
-        positions = find_digits_positions(dst)
-        digits = recognize_digits_line_method(positions, blurred.copy(), dst)
-
-        return {"digits": digits}
+        return JSONResponse(content={"digits": digits})
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
